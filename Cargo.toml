@@ -1,0 +1,17 @@
+[package]
+name = "cpptrader"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+license = "MIT"
+description = "High-performance trading components — Rust port of CppTrader"
+
+[dependencies]
+hashbrown = "0.17"
+
+[dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "matching"
+harness = false
