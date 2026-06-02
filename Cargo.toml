@@ -10,6 +10,7 @@ description = "High-performance trading components — Rust port of CppTrader"
 hashbrown = "0.17"
 
 [dev-dependencies]
+clap = { version = "4", features = ["derive"] }
 criterion = { version = "0.8", features = ["html_reports"] }
 
 [[bench]]
