@@ -736,11 +736,33 @@ impl MarketManager {
             let ask_aon = self.orders.get(&ask_id).is_some_and(|s| s.order.is_aon());
 
             if bid_aon || ask_aon {
-                let chain = self.calculate_matching_chain(symbol_id, bid_price);
-                if chain == 0 {
+                // For AON: check if both sides can be fully filled
+                let bid_total: u64 = self.order_books.get(symbol_id as usize)
+                    .and_then(|o| o.as_ref())
+                    .map_or(0, |ob| ob.bids().values().map(|l| l.level.total_volume).sum());
+                let ask_total: u64 = self.order_books.get(symbol_id as usize)
+                    .and_then(|o| o.as_ref())
+                    .map_or(0, |ob| ob.asks().values().map(|l| l.level.total_volume).sum());
+
+                let bid_qty = self.orders.get(&bid_id).map_or(0, |s| s.order.leaves_quantity);
+                let ask_qty = self.orders.get(&ask_id).map_or(0, |s| s.order.leaves_quantity);
+
+                // AON bid needs ask_total >= bid_qty; AON ask needs bid_total >= ask_qty
+                let can_fill = if bid_aon && ask_aon {
+                    bid_qty <= ask_total && ask_qty <= bid_total
+                } else if bid_aon {
+                    bid_qty <= ask_total
+                } else {
+                    ask_qty <= bid_total
+                };
+
+                if !can_fill {
                     break;
                 }
-                self.execute_matching_chain(symbol_id, bid_price, chain);
+
+                // Both sides can be filled — execute the smaller side
+                let exec_qty = bid_qty.min(ask_qty);
+                self.execute_matching_chain(symbol_id, bid_price, exec_qty);
             } else {
                 let bid_qty = self.orders.get(&bid_id).map_or(0, |s| s.order.leaves_quantity);
                 let ask_qty = self.orders.get(&ask_id).map_or(0, |s| s.order.leaves_quantity);
@@ -844,7 +866,8 @@ impl MarketManager {
             // FOK/AON special case
             if order.is_fok() || order.is_aon() {
                 let chain = self.calculate_matching_chain_volume(symbol_id, level_price, order.leaves_quantity, order.is_buy());
-                if chain == 0 {
+                // FOK needs enough volume; AON needs at least the full quantity
+                if chain == 0 || (order.is_aon() && chain < order.leaves_quantity) {
                     return;
                 }
                 self.execute_matching_chain_at(symbol_id, level_price, order.leaves_quantity, order.is_buy());
@@ -874,6 +897,10 @@ impl MarketManager {
             if let Some(ob) = self.order_books.get_mut(symbol_id as usize).and_then(|o| o.as_mut()) {
                 ob.update_last_price(&self.orders[&opposing_id].order, price);
                 ob.update_matching_price(&self.orders[&opposing_id].order, price);
+            }
+            // Update executed_quantity on the opposing order before reducing
+            if let Some(slot) = self.orders.get_mut(&opposing_id) {
+                slot.order.executed_quantity += quantity;
             }
             self.reduce_order_impl(opposing_id, quantity, true).ok();
 
@@ -1067,25 +1094,6 @@ impl MarketManager {
 
     // -- Matching chain calculation --------------------------------------------
 
-    fn calculate_matching_chain(&self, symbol_id: u32, _price: u64) -> u64 {
-        // For bid-ask AON matching: check if total available volume >= required
-        let ob = match self.order_books.get(symbol_id as usize).and_then(|o| o.as_ref()) {
-            Some(ob) => ob,
-            None => return 0,
-        };
-        let bid = match ob.best_bid() { Some(b) => b, None => return 0 };
-        let ask = match ob.best_ask() { Some(a) => a, None => return 0 };
-
-        let bid_first = match bid.order_queue.front() { Some(&id) => id, None => return 0 };
-        let ask_first = match ask.order_queue.front() { Some(&id) => id, None => return 0 };
-
-        let bid_qty = self.orders.get(&bid_first).map_or(0, |s| s.order.leaves_quantity);
-        let ask_qty = self.orders.get(&ask_first).map_or(0, |s| s.order.leaves_quantity);
-
-        // Simplified: return the minimum available quantity
-        bid_qty.min(ask_qty)
-    }
-
     fn calculate_matching_chain_volume(&self, symbol_id: u32, level_price: u64, volume: u64, is_buy: bool) -> u64 {
         let ob = match self.order_books.get(symbol_id as usize).and_then(|o| o.as_ref()) {
             Some(ob) => ob,
@@ -1239,11 +1247,11 @@ impl MarketManager {
 
             let order_id = match order_id {
                 Some(id) => id,
-                None => { eprintln!("CHAIN: no order found, remaining={}", remaining); break; },
+                None => break,
             };
 
             let qty = self.orders.get(&order_id).map_or(0, |s| s.order.leaves_quantity.min(remaining));
-            if qty == 0 { eprintln!("CHAIN: qty=0, remaining={}", remaining); break; }
+            if qty == 0 { break; }
             self.handler.on_execute_order(&self.orders[&order_id].order, level_price, qty);
             if let Some(ob) = self.order_books.get_mut(symbol_id as usize).and_then(|o| o.as_mut()) {
                 ob.update_last_price(&self.orders[&order_id].order, level_price);

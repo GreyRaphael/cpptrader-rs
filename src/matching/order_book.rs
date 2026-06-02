@@ -154,6 +154,11 @@ impl OrderBook {
             self.get_market_trailing_stop_price_bid()
         };
 
+        // If market price is at sentinel value (no valid price yet), keep original stop price
+        if market_price == u64::MAX || market_price == 0 {
+            return order.stop_price;
+        }
+
         let mut trailing_distance = order.trailing_distance;
         let mut trailing_step = order.trailing_step;
 

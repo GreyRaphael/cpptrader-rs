@@ -370,6 +370,258 @@ fn test_validate_zero_quantity() {
 }
 
 // ---------------------------------------------------------------------------
+//  AON tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_aon_full_matching() {
+    let mut mm = setup_manager_with_matching();
+
+    // Non-AON buy orders: total 60 at price 10
+    mm.add_order(Order::buy_limit(1, 0, 10, 30, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+    mm.add_order(Order::buy_limit(2, 0, 10, 30, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+
+    // AON sell qty=60 -> 60 available, fills completely
+    mm.add_order(Order::sell_limit(3, 0, 10, 60, OrderTimeInForce::Aon, u64::MAX)).unwrap();
+
+    // All consumed
+    let ob = mm.get_order_book(0).unwrap();
+    let total: u64 = ob.bids().values().map(|l| l.level.total_volume).sum();
+    assert_eq!(total, 0);
+    assert!(ob.best_bid().is_none());
+}
+
+#[test]
+fn test_aon_insufficient_volume_stays_in_book() {
+    let mut mm = setup_manager_with_matching();
+
+    // Buy orders: total 60 at price 10
+    mm.add_order(Order::buy_limit(1, 0, 10, 30, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+    mm.add_order(Order::buy_limit(2, 0, 10, 30, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+
+    // AON sell qty=100 -> only 60 available, stays in book
+    mm.add_order(Order::sell_limit(3, 0, 10, 100, OrderTimeInForce::Aon, u64::MAX)).unwrap();
+
+    // Buy orders remain, sell AON is in the ask book
+    let ob = mm.get_order_book(0).unwrap();
+    let bid_total: u64 = ob.bids().values().map(|l| l.level.total_volume).sum();
+    assert_eq!(bid_total, 60);
+    assert!(ob.best_ask().is_some());
+    let ask_total: u64 = ob.asks().values().map(|l| l.level.total_volume).sum();
+    assert_eq!(ask_total, 100);
+}
+
+// ---------------------------------------------------------------------------
+//  Trailing stop order tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_trailing_stop_order_stored() {
+    let mut mm = MarketManager::with_default_handler();
+    let sym = make_symbol(0);
+    mm.add_symbol(sym).unwrap();
+    mm.add_order_book(&sym).unwrap();
+    // Don't enable matching — just test that trailing stop is stored correctly
+
+    // Add a sell limit so there's a market price reference
+    mm.add_order(Order::sell_limit(1, 0, 200, 10, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+
+    // Add trailing buy stop: stop_price=300 (> best_ask=200)
+    mm.add_order(Order::trailing_buy_stop(2, 0, 300, 10, 10, 5, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+
+    // The trailing stop should be in the stop book (matching not enabled)
+    let ob = mm.get_order_book(0).unwrap();
+    assert!(ob.best_trailing_buy_stop().is_some(), "Expected trailing buy stop in book");
+    assert_eq!(ob.best_trailing_buy_stop().unwrap().level.price, 300);
+
+    // The order should exist in the order map
+    assert!(mm.get_order(2).is_some());
+}
+
+// ---------------------------------------------------------------------------
+//  In-Flight Mitigation (IFM) tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_in_flight_mitigation() {
+    let mut mm = setup_manager_with_matching();
+
+    // Buy 100 at 10, sell 100 at 20 — they don't cross
+    mm.add_order(Order::buy_limit(1, 0, 10, 100, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+    mm.add_order(Order::sell_limit(2, 0, 20, 100, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+
+    // Add crossing orders that partially match
+    mm.add_order(Order::sell_limit(3, 0, 10, 20, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+    mm.add_order(Order::buy_limit(4, 0, 20, 20, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+
+    // After crossing: order 1 has 80 leaves (100-20), order 2 has 80 leaves (100-20)
+
+    // Mitigate order 1: new_quantity=150 > executed=20, so leaves=130
+    mm.mitigate_order(1, 10, 150).unwrap();
+    let order = mm.get_order(1).unwrap();
+    assert_eq!(order.leaves_quantity, 130);
+    assert_eq!(order.quantity, 150);
+
+    // Mitigate order 2: new_quantity=50 > executed=20, so leaves=30
+    mm.mitigate_order(2, 20, 50).unwrap();
+    let order = mm.get_order(2).unwrap();
+    assert_eq!(order.leaves_quantity, 30);
+
+    // Second round: mitigate to <= executed -> cancels
+    mm.mitigate_order(1, 10, 10).unwrap();
+    assert!(mm.get_order(1).is_none());
+
+    mm.mitigate_order(2, 20, 10).unwrap();
+    assert!(mm.get_order(2).is_none());
+}
+
+// ---------------------------------------------------------------------------
+//  Stop-limit with empty market tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_stop_limit_empty_market() {
+    let mut mm = setup_manager_with_matching();
+
+    // Stop-limit on empty market: no reference price, should be added as limit
+    mm.add_order(Order::sell_stop_limit(1, 0, 40, 20, 10, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+
+    // The order should be in the ask book (converted to limit since no reference)
+    let ob = mm.get_order_book(0).unwrap();
+    // On empty market, stop-limit becomes a regular limit
+    assert!(ob.best_ask().is_some());
+}
+
+#[test]
+fn test_stop_empty_market() {
+    let mut mm = setup_manager_with_matching();
+
+    // Stop on empty market: no reference price, the stop order has IOC TIF
+    // so with no opposing side it gets canceled
+    mm.add_order(Order::sell_stop(1, 0, 40, 10, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+
+    // On empty market, stop triggers immediately as market (IOC), nothing to match -> canceled
+    let ob = mm.get_order_book(0).unwrap();
+    assert!(ob.best_bid().is_none());
+    assert!(ob.best_ask().is_none());
+}
+
+// ---------------------------------------------------------------------------
+//  Replace order test
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_replace_order() {
+    let mut mm = setup_manager_with_matching();
+
+    mm.add_order(Order::buy_limit(1, 0, 10, 100, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+
+    // Replace with new id, price, quantity
+    mm.replace_order(1, 2, 20, 50).unwrap();
+
+    // Old order gone, new order exists
+    assert!(mm.get_order(1).is_none());
+    let order = mm.get_order(2).unwrap();
+    assert_eq!(order.price, 20);
+    assert_eq!(order.quantity, 50);
+    assert_eq!(order.leaves_quantity, 50);
+}
+
+#[test]
+fn test_replace_order_with() {
+    let mut mm = setup_manager_with_matching();
+
+    mm.add_order(Order::buy_limit(1, 0, 10, 100, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+
+    // Replace with entirely new order
+    let new_order = Order::sell_limit(2, 0, 50, 30, OrderTimeInForce::Gtc, u64::MAX);
+    mm.replace_order_with(1, new_order).unwrap();
+
+    assert!(mm.get_order(1).is_none());
+    assert!(mm.get_order(2).is_some());
+}
+
+// ---------------------------------------------------------------------------
+//  Market order with slippage test
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_market_order_slippage() {
+    let mut mm = setup_manager_with_matching();
+
+    // Sell limits at 40, 50, 60
+    mm.add_order(Order::sell_limit(1, 0, 40, 10, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+    mm.add_order(Order::sell_limit(2, 0, 50, 10, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+    mm.add_order(Order::sell_limit(3, 0, 60, 10, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+
+    // Buy market with slippage=0 -> only fills at best ask (40)
+    mm.add_order(Order::buy_market(4, 0, 100, 0)).unwrap();
+
+    // Only 10 filled (at price 40), rest canceled
+    let ob = mm.get_order_book(0).unwrap();
+    let ask_total: u64 = ob.asks().values().map(|l| l.level.total_volume).sum();
+    assert_eq!(ask_total, 20); // 50 and 60 remain
+}
+
+// ---------------------------------------------------------------------------
+//  Order count and iteration tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_order_count() {
+    let mut mm = setup_manager_with_matching();
+
+    assert_eq!(mm.order_count(), 0);
+
+    mm.add_order(Order::buy_limit(1, 0, 10, 10, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+    assert_eq!(mm.order_count(), 1);
+
+    mm.add_order(Order::buy_limit(2, 0, 20, 10, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+    assert_eq!(mm.order_count(), 2);
+
+    mm.delete_order(1).unwrap();
+    assert_eq!(mm.order_count(), 1);
+}
+
+#[test]
+fn test_iter_orders() {
+    let mut mm = setup_manager_with_matching();
+
+    mm.add_order(Order::buy_limit(1, 0, 10, 10, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+    mm.add_order(Order::sell_limit(2, 0, 20, 10, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+
+    let orders: Vec<_> = mm.iter_orders().collect();
+    assert_eq!(orders.len(), 2);
+}
+
+// ---------------------------------------------------------------------------
+//  Symbol and order book query tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_get_symbol() {
+    let mut mm = MarketManager::with_default_handler();
+    let sym = make_symbol(42);
+    mm.add_symbol(sym).unwrap();
+
+    let s = mm.get_symbol(42).unwrap();
+    assert_eq!(s.id, 42);
+
+    assert!(mm.get_symbol(99).is_none());
+}
+
+#[test]
+fn test_get_order_book() {
+    let mut mm = MarketManager::with_default_handler();
+    let sym = make_symbol(1);
+    mm.add_symbol(sym).unwrap();
+    mm.add_order_book(&sym).unwrap();
+
+    assert!(mm.get_order_book(1).is_some());
+    assert!(mm.get_order_book(99).is_none());
+}
+
+// ---------------------------------------------------------------------------
 //  MarketHandler callback test
 // ---------------------------------------------------------------------------
 
