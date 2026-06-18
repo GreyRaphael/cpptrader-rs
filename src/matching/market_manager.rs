@@ -236,8 +236,16 @@ impl MarketManager {
             return Err(ErrorCode::OrderBookNotFound);
         }
 
-        self.delete_order(id)?;
-        self.add_order(new_order)
+        let old_order = self.orders[&id].order.clone();
+        self.delete_order_impl(id, true)?;
+
+        match self.add_order(new_order) {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                let _ = self.add_order(old_order);
+                Err(err)
+            }
+        }
     }
 
     pub fn delete_order(&mut self, id: OrderId) -> Result<()> {
@@ -258,10 +266,7 @@ impl MarketManager {
 
         self.do_execute(symbol_id, id, price, quantity)?;
 
-        if self.matching {
-            self.match_book(symbol_id);
-        }
-        // reset_matching_price already called inside do_execute
+        // match_book and reset_matching_price are handled inside do_execute.
         Ok(())
     }
 
@@ -281,9 +286,7 @@ impl MarketManager {
             .symbol_id;
         self.do_execute(symbol_id, id, price, quantity)?;
 
-        if self.matching {
-            self.match_book(symbol_id);
-        }
+        // match_book and reset_matching_price are handled inside do_execute.
         Ok(())
     }
 
@@ -1592,27 +1595,35 @@ impl MarketManager {
         };
 
         let mut available: u64 = 0;
-        // Walk through all opposing levels that are marketable for the incoming limit price.
-        let mut level_iter: Box<
-            dyn Iterator<Item = (&u64, &crate::matching::order_book::LevelData)>,
-        > = if is_buy {
-            Box::new(ob.asks().range(..=level_price))
-        } else {
-            Box::new(ob.bids().range(level_price..).rev())
-        };
 
-        for (_price, level) in &mut level_iter {
-            for &order_id in &level.order_queue {
-                if available >= volume {
-                    return available;
+        if is_buy {
+            for (_price, level) in ob.asks().range(..=level_price) {
+                for &order_id in &level.order_queue {
+                    if available >= volume {
+                        return available;
+                    }
+                    let qty = self
+                        .orders
+                        .get(&order_id)
+                        .map_or(0, |s| s.order.leaves_quantity);
+                    available += qty;
                 }
-                let qty = self
-                    .orders
-                    .get(&order_id)
-                    .map_or(0, |s| s.order.leaves_quantity);
-                available += qty;
+            }
+        } else {
+            for (_price, level) in ob.bids().range(level_price..).rev() {
+                for &order_id in &level.order_queue {
+                    if available >= volume {
+                        return available;
+                    }
+                    let qty = self
+                        .orders
+                        .get(&order_id)
+                        .map_or(0, |s| s.order.leaves_quantity);
+                    available += qty;
+                }
             }
         }
+
         if available >= volume { available } else { 0 }
     }
 

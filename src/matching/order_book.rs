@@ -31,6 +31,14 @@ impl LevelData {
     }
 }
 
+fn remove_filled_order(queue: &mut VecDeque<OrderId>, order_id: OrderId) {
+    if queue.front().is_some_and(|&id| id == order_id) {
+        queue.pop_front();
+    } else {
+        queue.retain(|&id| id != order_id);
+    }
+}
+
 // ---------------------------------------------------------------------------
 //  OrderBook
 // ---------------------------------------------------------------------------
@@ -300,7 +308,7 @@ impl OrderBook {
             level.level.visible_volume -= visible;
 
             if order.leaves_quantity == 0 {
-                level.order_queue.retain(|&id| id != order.id);
+                remove_filled_order(&mut level.order_queue, order.id);
                 level.level.orders -= 1;
             }
 
@@ -387,7 +395,7 @@ impl OrderBook {
             level.level.hidden_volume -= hidden;
             level.level.visible_volume -= visible;
             if order.leaves_quantity == 0 {
-                level.order_queue.retain(|&id| id != order.id);
+                remove_filled_order(&mut level.order_queue, order.id);
                 level.level.orders -= 1;
             }
             if level.level.total_volume == 0 {
@@ -457,7 +465,7 @@ impl OrderBook {
             level.level.hidden_volume -= hidden;
             level.level.visible_volume -= visible;
             if order.leaves_quantity == 0 {
-                level.order_queue.retain(|&id| id != order.id);
+                remove_filled_order(&mut level.order_queue, order.id);
                 level.level.orders -= 1;
             }
             if level.level.total_volume == 0 {
