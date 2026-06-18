@@ -10,7 +10,7 @@ use crate::matching::types::{OrderSide, OrderTimeInForce, OrderType};
 pub type OrderId = u64;
 
 /// An order to buy or sell.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Order {
     pub id: OrderId,
     pub symbol_id: u32,

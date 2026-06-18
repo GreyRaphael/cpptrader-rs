@@ -236,7 +236,7 @@ impl MarketManager {
             return Err(ErrorCode::OrderBookNotFound);
         }
 
-        let old_order = self.orders[&id].order.clone();
+        let old_order = self.orders[&id].order;
         self.delete_order_impl(id, true)?;
 
         match self.add_order(new_order) {
@@ -330,7 +330,7 @@ impl MarketManager {
         let visible_delta = visible_before - visible_after;
 
         // Update order book level
-        let order = slot.order.clone();
+        let order = slot.order;
         if let Some(ob) = self
             .order_books
             .get_mut(symbol_id as usize)
@@ -408,7 +408,7 @@ impl MarketManager {
                 self.handler.on_delete_order(&order);
                 return Err(ErrorCode::OrderDuplicate);
             }
-            let order_clone = order.clone();
+            let order_clone = order;
             self.orders.insert(order.id, OrderSlot { order });
 
             if let Some(ob) = self
@@ -499,7 +499,7 @@ impl MarketManager {
                 self.handler.on_delete_order(&order);
                 return Err(ErrorCode::OrderDuplicate);
             }
-            let order_clone = order.clone();
+            let order_clone = order;
             self.orders
                 .insert(order.id, OrderSlot { order: order_clone });
 
@@ -575,7 +575,7 @@ impl MarketManager {
                         self.handler.on_delete_order(&order);
                         return Err(ErrorCode::OrderDuplicate);
                     }
-                    let oc = order.clone();
+                    let oc = order;
                     self.orders.insert(order.id, OrderSlot { order });
                     if let Some(ob) = self
                         .order_books
@@ -608,7 +608,7 @@ impl MarketManager {
                 self.handler.on_delete_order(&order);
                 return Err(ErrorCode::OrderDuplicate);
             }
-            let order_clone = order.clone();
+            let order_clone = order;
             self.orders
                 .insert(order.id, OrderSlot { order: order_clone });
 
@@ -671,7 +671,7 @@ impl MarketManager {
         let hidden_delta = hidden_before - hidden_after;
         let visible_delta = visible_before - visible_after;
 
-        let order = self.orders[&id].order.clone();
+        let order = self.orders[&id].order;
 
         if order.leaves_quantity > 0 {
             self.handler.on_update_order(&order);
@@ -763,7 +763,7 @@ impl MarketManager {
 
         // Delete from book
         {
-            let order = self.orders[&id].order.clone();
+            let order = self.orders[&id].order;
             if let Some(ob) = self
                 .order_books
                 .get_mut(symbol_id as usize)
@@ -799,7 +799,7 @@ impl MarketManager {
             }
         }
 
-        let mut order = self.orders[&id].order.clone();
+        let mut order = self.orders[&id].order;
 
         if order.leaves_quantity > 0 {
             self.handler.on_update_order(&order);
@@ -818,7 +818,7 @@ impl MarketManager {
                 .get(&id)
                 .is_some_and(|s| s.order.leaves_quantity > 0)
             {
-                let order = self.orders[&id].order.clone();
+                let order = self.orders[&id].order;
                 if let Some(ob) = self
                     .order_books
                     .get_mut(symbol_id as usize)
@@ -845,7 +845,7 @@ impl MarketManager {
             .get(&id)
             .is_some_and(|s| s.order.leaves_quantity == 0)
         {
-            let order = self.orders[&id].order.clone();
+            let order = self.orders[&id].order;
             self.handler.on_delete_order(&order);
             self.orders.remove(&id);
         }
@@ -892,7 +892,7 @@ impl MarketManager {
 
         // Delete old from book
         {
-            let order = self.orders[&id].order.clone();
+            let order = self.orders[&id].order;
             if let Some(ob) = self
                 .order_books
                 .get_mut(symbol_id as usize)
@@ -902,8 +902,7 @@ impl MarketManager {
             }
         }
 
-        self.handler
-            .on_delete_order(&self.orders[&id].order.clone());
+        self.handler.on_delete_order(&self.orders[&id].order);
 
         // Transform in-place
         {
@@ -920,12 +919,7 @@ impl MarketManager {
 
         if self.matching && !recursive {
             // Need to match, but we just removed it. Re-insert temporarily.
-            self.orders.insert(
-                order.id,
-                OrderSlot {
-                    order: order.clone(),
-                },
-            );
+            self.orders.insert(order.id, OrderSlot { order });
             let mut order_mut = order;
             self.match_limit(symbol_id, &mut order_mut);
 
@@ -943,7 +937,7 @@ impl MarketManager {
                 if self.orders.contains_key(&order_mut.id) && order_mut.id != id {
                     // Re-insert under new ID (already done)
                 }
-                let order = self.orders[&order_mut.id].order.clone();
+                let order = self.orders[&order_mut.id].order;
                 if let Some(ob) = self
                     .order_books
                     .get_mut(symbol_id as usize)
@@ -964,12 +958,7 @@ impl MarketManager {
                 return Err(ErrorCode::OrderDuplicate);
             }
             if order.leaves_quantity > 0 {
-                self.orders.insert(
-                    order.id,
-                    OrderSlot {
-                        order: order.clone(),
-                    },
-                );
+                self.orders.insert(order.id, OrderSlot { order });
                 if let Some(ob) = self
                     .order_books
                     .get_mut(symbol_id as usize)
@@ -1433,7 +1422,7 @@ impl MarketManager {
 
         for order_id in order_ids {
             let order = match self.orders.get(&order_id) {
-                Some(s) => s.order.clone(),
+                Some(s) => s.order,
                 None => continue,
             };
             match order.order_type {
@@ -1486,7 +1475,7 @@ impl MarketManager {
 
         for order_id in order_ids {
             let order = match self.orders.get(&order_id) {
-                Some(s) => s.order.clone(),
+                Some(s) => s.order,
                 None => continue,
             };
             match order.order_type {
@@ -1562,7 +1551,7 @@ impl MarketManager {
         self.match_limit(symbol_id, &mut order);
 
         if order.leaves_quantity > 0 && !order.is_ioc() && !order.is_fok() {
-            let oc = order.clone();
+            let oc = order;
             self.orders.insert(order.id, OrderSlot { order });
             if let Some(ob) = self
                 .order_books
@@ -1689,7 +1678,7 @@ impl MarketManager {
                 }
                 self.handler.on_delete_order(&order);
             } else {
-                let order = self.orders[&order_id].order.clone();
+                let order = self.orders[&order_id].order;
                 if let Some(ob) = self
                     .order_books
                     .get_mut(symbol_id as usize)
@@ -1762,7 +1751,7 @@ impl MarketManager {
                 }
                 self.handler.on_delete_order(&order);
             } else {
-                let order = self.orders[&order_id].order.clone();
+                let order = self.orders[&order_id].order;
                 if let Some(ob) = self
                     .order_books
                     .get_mut(symbol_id as usize)
@@ -1857,7 +1846,7 @@ impl MarketManager {
                 }
                 self.handler.on_delete_order(&order);
             } else {
-                let order = self.orders[&order_id].order.clone();
+                let order = self.orders[&order_id].order;
                 if let Some(ob) = self
                     .order_books
                     .get_mut(symbol_id as usize)
@@ -1906,7 +1895,7 @@ impl MarketManager {
         for (order_id, new_price) in orders_to_update {
             if let Some(slot) = self.orders.get_mut(&order_id) {
                 // Delete from old position
-                let old_order = slot.order.clone();
+                let old_order = slot.order;
                 if let Some(ob) = self
                     .order_books
                     .get_mut(symbol_id as usize)
@@ -1928,10 +1917,10 @@ impl MarketManager {
                     _ => {}
                 }
 
-                self.handler.on_update_order(&slot.order.clone());
+                self.handler.on_update_order(&slot.order);
 
                 // Re-add at new position
-                let order = slot.order.clone();
+                let order = slot.order;
                 if let Some(ob) = self
                     .order_books
                     .get_mut(symbol_id as usize)
