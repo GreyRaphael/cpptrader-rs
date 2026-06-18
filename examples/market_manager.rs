@@ -68,13 +68,61 @@ fn main() {
 
     // -- Add limit orders (no matching yet) --
     println!("\n--- Adding limit orders ---");
-    mm.add_order(Order::buy_limit(1, 1, 15000, 100, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
-    mm.add_order(Order::buy_limit(2, 1, 14900, 200, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
-    mm.add_order(Order::buy_limit(3, 1, 14800, 300, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+    mm.add_order(Order::buy_limit(
+        1,
+        1,
+        15000,
+        100,
+        OrderTimeInForce::Gtc,
+        u64::MAX,
+    ))
+    .unwrap();
+    mm.add_order(Order::buy_limit(
+        2,
+        1,
+        14900,
+        200,
+        OrderTimeInForce::Gtc,
+        u64::MAX,
+    ))
+    .unwrap();
+    mm.add_order(Order::buy_limit(
+        3,
+        1,
+        14800,
+        300,
+        OrderTimeInForce::Gtc,
+        u64::MAX,
+    ))
+    .unwrap();
 
-    mm.add_order(Order::sell_limit(4, 1, 15100, 100, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
-    mm.add_order(Order::sell_limit(5, 1, 15200, 200, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
-    mm.add_order(Order::sell_limit(6, 1, 15300, 300, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+    mm.add_order(Order::sell_limit(
+        4,
+        1,
+        15100,
+        100,
+        OrderTimeInForce::Gtc,
+        u64::MAX,
+    ))
+    .unwrap();
+    mm.add_order(Order::sell_limit(
+        5,
+        1,
+        15200,
+        200,
+        OrderTimeInForce::Gtc,
+        u64::MAX,
+    ))
+    .unwrap();
+    mm.add_order(Order::sell_limit(
+        6,
+        1,
+        15300,
+        300,
+        OrderTimeInForce::Gtc,
+        u64::MAX,
+    ))
+    .unwrap();
 
     // Print book
     println!("\n--- Order Book ---");
@@ -93,7 +141,15 @@ fn main() {
     mm.enable_matching();
 
     println!("\n--- Adding crossing limit order ---");
-    mm.add_order(Order::buy_limit(7, 1, 15100, 50, OrderTimeInForce::Gtc, u64::MAX)).unwrap();
+    mm.add_order(Order::buy_limit(
+        7,
+        1,
+        15100,
+        50,
+        OrderTimeInForce::Gtc,
+        u64::MAX,
+    ))
+    .unwrap();
 
     // Print updated book
     println!("\n--- Updated Order Book ---");
@@ -109,7 +165,15 @@ fn main() {
 
     // -- Add IOC order --
     println!("\n--- Adding IOC sell order ---");
-    mm.add_order(Order::sell_limit(8, 1, 15000, 500, OrderTimeInForce::Ioc, u64::MAX)).unwrap();
+    mm.add_order(Order::sell_limit(
+        8,
+        1,
+        15000,
+        500,
+        OrderTimeInForce::Ioc,
+        u64::MAX,
+    ))
+    .unwrap();
 
     // -- Reduce and modify --
     println!("\n--- Reduce and modify ---");

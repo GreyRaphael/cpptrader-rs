@@ -28,8 +28,14 @@ impl Level {
         }
     }
 
-    #[inline] pub fn is_bid(&self) -> bool { self.level_type == LevelType::Bid }
-    #[inline] pub fn is_ask(&self) -> bool { self.level_type == LevelType::Ask }
+    #[inline]
+    pub fn is_bid(&self) -> bool {
+        self.level_type == LevelType::Bid
+    }
+    #[inline]
+    pub fn is_ask(&self) -> bool {
+        self.level_type == LevelType::Ask
+    }
 }
 
 impl std::fmt::Display for Level {
@@ -52,6 +58,10 @@ pub struct LevelUpdate {
 
 impl LevelUpdate {
     pub fn new(update_type: UpdateType, level: Level, top: bool) -> Self {
-        Self { update_type, level, top }
+        Self {
+            update_type,
+            level,
+            top,
+        }
     }
 }

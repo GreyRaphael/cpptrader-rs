@@ -37,7 +37,10 @@ use cpptrader::matching::types::*;
 // ---------------------------------------------------------------------------
 
 #[derive(Parser)]
-#[command(name = "matching-engine", about = "Interactive CppTrader matching engine")]
+#[command(
+    name = "matching-engine",
+    about = "Interactive CppTrader matching engine"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -263,21 +266,32 @@ fn print_book(ob: &OrderBook) {
         println!("  │   (empty)");
     }
     for (price, level) in ob.bids().iter().rev() {
-        println!("  │   {:>8}  vol={:<8} orders={}", price, level.level.total_volume, level.level.orders);
+        println!(
+            "  │   {:>8}  vol={:<8} orders={}",
+            price, level.level.total_volume, level.level.orders
+        );
     }
     println!("  │ Asks:");
     if ob.asks().is_empty() {
         println!("  │   (empty)");
     }
     for (price, level) in ob.asks() {
-        println!("  │   {:>8}  vol={:<8} orders={}", price, level.level.total_volume, level.level.orders);
+        println!(
+            "  │   {:>8}  vol={:<8} orders={}",
+            price, level.level.total_volume, level.level.orders
+        );
     }
-    let bid = ob.best_bid().map_or("-".to_string(), |l| l.level.price.to_string());
-    let ask = ob.best_ask().map_or("-".to_string(), |l| l.level.price.to_string());
+    let bid = ob
+        .best_bid()
+        .map_or("-".to_string(), |l| l.level.price.to_string());
+    let ask = ob
+        .best_ask()
+        .map_or("-".to_string(), |l| l.level.price.to_string());
     println!("  │ Best: bid={}  ask={}", bid, ask);
     println!("  └──────────────────────────────────────");
 }
 
+#[allow(clippy::too_many_arguments)]
 fn make_order(
     id: u64,
     symbol_id: u32,
@@ -292,9 +306,32 @@ fn make_order(
         OrderTypeArg::Market => Order::market(id, symbol_id, side, quantity, extra),
         OrderTypeArg::Limit => Order::limit(id, symbol_id, side, price, quantity, tif, extra),
         OrderTypeArg::Stop => Order::stop(id, symbol_id, side, price, quantity, tif, extra),
-        OrderTypeArg::StopLimit => Order::stop_limit(id, symbol_id, side, price, price, quantity, tif, extra),
-        OrderTypeArg::TrailingStop => Order::trailing_stop(id, symbol_id, side, price, quantity, extra as i64, 0, tif, u64::MAX),
-        OrderTypeArg::TrailingStopLimit => Order::trailing_stop_limit(id, symbol_id, side, price, price, quantity, extra as i64, 0, tif, u64::MAX),
+        OrderTypeArg::StopLimit => {
+            Order::stop_limit(id, symbol_id, side, price, price, quantity, tif, extra)
+        }
+        OrderTypeArg::TrailingStop => Order::trailing_stop(
+            id,
+            symbol_id,
+            side,
+            price,
+            quantity,
+            extra as i64,
+            0,
+            tif,
+            u64::MAX,
+        ),
+        OrderTypeArg::TrailingStopLimit => Order::trailing_stop_limit(
+            id,
+            symbol_id,
+            side,
+            price,
+            price,
+            quantity,
+            extra as i64,
+            0,
+            tif,
+            u64::MAX,
+        ),
     }
 }
 
@@ -336,7 +373,7 @@ fn main() {
             Err(e) => {
                 // Print a compact error instead of the full clap help
                 let msg = e.to_string();
-                if msg.contains("help") || msg == "" {
+                if msg.contains("help") || msg.is_empty() {
                     print_help();
                 } else {
                     // Show just the error line, not the full usage
@@ -389,56 +426,78 @@ fn run_command(mm: &mut MarketManager, cmd: Commands) {
         Commands::AddBook { symbol_id } => {
             let sym = match mm.get_symbol(symbol_id) {
                 Some(s) => *s,
-                None => { println!("  Error: symbol {} not found", symbol_id); return; }
+                None => {
+                    println!("  Error: symbol {} not found", symbol_id);
+                    return;
+                }
             };
             match mm.add_order_book(&sym) {
                 Ok(()) => println!("  OK: order book for symbol {} added", symbol_id),
                 Err(e) => println!("  Error: {}", e),
             }
         }
-        Commands::Add { id, symbol_id, side, order_type, price, quantity, tif, extra } => {
-            let order = make_order(id, symbol_id, side.into(), order_type, price, quantity, tif.into(), extra.value());
+        Commands::Add {
+            id,
+            symbol_id,
+            side,
+            order_type,
+            price,
+            quantity,
+            tif,
+            extra,
+        } => {
+            let order = make_order(
+                id,
+                symbol_id,
+                side.into(),
+                order_type,
+                price,
+                quantity,
+                tif.into(),
+                extra.value(),
+            );
             match mm.add_order(order) {
                 Ok(()) => println!("  OK: order {} added", id),
                 Err(e) => println!("  Error: {}", e),
             }
         }
-        Commands::Delete { id } => {
-            match mm.delete_order(id) {
-                Ok(()) => println!("  OK: order {} deleted", id),
-                Err(e) => println!("  Error: {}", e),
-            }
-        }
-        Commands::Reduce { id, quantity } => {
-            match mm.reduce_order(id, quantity) {
-                Ok(()) => println!("  OK: order {} reduced by {}", id, quantity),
-                Err(e) => println!("  Error: {}", e),
-            }
-        }
-        Commands::Modify { id, price, quantity } => {
-            match mm.modify_order(id, price, quantity) {
-                Ok(()) => println!("  OK: order {} modified", id),
-                Err(e) => println!("  Error: {}", e),
-            }
-        }
-        Commands::Mitigate { id, price, quantity } => {
-            match mm.mitigate_order(id, price, quantity) {
-                Ok(()) => println!("  OK: order {} mitigated", id),
-                Err(e) => println!("  Error: {}", e),
-            }
-        }
-        Commands::Replace { id, new_id, price, quantity } => {
-            match mm.replace_order(id, new_id, price, quantity) {
-                Ok(()) => println!("  OK: order {} → {}", id, new_id),
-                Err(e) => println!("  Error: {}", e),
-            }
-        }
-        Commands::Execute { id, quantity } => {
-            match mm.execute_order(id, quantity) {
-                Ok(()) => println!("  OK: order {} executed {} qty", id, quantity),
-                Err(e) => println!("  Error: {}", e),
-            }
-        }
+        Commands::Delete { id } => match mm.delete_order(id) {
+            Ok(()) => println!("  OK: order {} deleted", id),
+            Err(e) => println!("  Error: {}", e),
+        },
+        Commands::Reduce { id, quantity } => match mm.reduce_order(id, quantity) {
+            Ok(()) => println!("  OK: order {} reduced by {}", id, quantity),
+            Err(e) => println!("  Error: {}", e),
+        },
+        Commands::Modify {
+            id,
+            price,
+            quantity,
+        } => match mm.modify_order(id, price, quantity) {
+            Ok(()) => println!("  OK: order {} modified", id),
+            Err(e) => println!("  Error: {}", e),
+        },
+        Commands::Mitigate {
+            id,
+            price,
+            quantity,
+        } => match mm.mitigate_order(id, price, quantity) {
+            Ok(()) => println!("  OK: order {} mitigated", id),
+            Err(e) => println!("  Error: {}", e),
+        },
+        Commands::Replace {
+            id,
+            new_id,
+            price,
+            quantity,
+        } => match mm.replace_order(id, new_id, price, quantity) {
+            Ok(()) => println!("  OK: order {} → {}", id, new_id),
+            Err(e) => println!("  Error: {}", e),
+        },
+        Commands::Execute { id, quantity } => match mm.execute_order(id, quantity) {
+            Ok(()) => println!("  OK: order {} executed {} qty", id, quantity),
+            Err(e) => println!("  Error: {}", e),
+        },
         Commands::Match => {
             mm.match_all();
             println!("  OK: matching complete");
@@ -451,12 +510,10 @@ fn run_command(mm: &mut MarketManager, cmd: Commands) {
             mm.disable_matching();
             println!("  OK: automatic matching disabled");
         }
-        Commands::Book { symbol_id } => {
-            match mm.get_order_book(symbol_id) {
-                Some(ob) => print_book(ob),
-                None => println!("  Error: order book for symbol {} not found", symbol_id),
-            }
-        }
+        Commands::Book { symbol_id } => match mm.get_order_book(symbol_id) {
+            Some(ob) => print_book(ob),
+            None => println!("  Error: order book for symbol {} not found", symbol_id),
+        },
         Commands::Orders => {
             let orders: Vec<_> = mm.iter_orders().collect();
             if orders.is_empty() {
@@ -464,7 +521,16 @@ fn run_command(mm: &mut MarketManager, cmd: Commands) {
             } else {
                 println!("  Active orders ({}):", orders.len());
                 for (id, order) in &orders {
-                    println!("    id={} {} {} {} @ {} qty={}/{}", id, order.side, order.order_type, order.time_in_force, order.price, order.leaves_quantity, order.quantity);
+                    println!(
+                        "    id={} {} {} {} @ {} qty={}/{}",
+                        id,
+                        order.side,
+                        order.order_type,
+                        order.time_in_force,
+                        order.price,
+                        order.leaves_quantity,
+                        order.quantity
+                    );
                 }
             }
         }

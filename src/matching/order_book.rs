@@ -84,31 +84,64 @@ impl OrderBook {
 
     // -- Public getters --------------------------------------------------------
 
-    pub fn symbol(&self) -> &Symbol { &self.symbol }
-
-    pub fn size(&self) -> usize {
-        self.bids.len() + self.asks.len()
-            + self.buy_stop.len() + self.sell_stop.len()
-            + self.trailing_buy_stop.len() + self.trailing_sell_stop.len()
+    pub fn symbol(&self) -> &Symbol {
+        &self.symbol
     }
 
-    pub fn best_bid(&self) -> Option<&LevelData> { self.bids.values().next_back() }
-    pub fn best_ask(&self) -> Option<&LevelData> { self.asks.values().next() }
-    pub fn bids(&self) -> &BTreeMap<u64, LevelData> { &self.bids }
-    pub fn asks(&self) -> &BTreeMap<u64, LevelData> { &self.asks }
+    pub fn size(&self) -> usize {
+        self.bids.len()
+            + self.asks.len()
+            + self.buy_stop.len()
+            + self.sell_stop.len()
+            + self.trailing_buy_stop.len()
+            + self.trailing_sell_stop.len()
+    }
 
-    pub fn best_buy_stop(&self) -> Option<&LevelData> { self.buy_stop.values().next() }
-    pub fn best_sell_stop(&self) -> Option<&LevelData> { self.sell_stop.values().next_back() }
-    pub fn buy_stop(&self) -> &BTreeMap<u64, LevelData> { &self.buy_stop }
-    pub fn sell_stop(&self) -> &BTreeMap<u64, LevelData> { &self.sell_stop }
+    pub fn best_bid(&self) -> Option<&LevelData> {
+        self.bids.values().next_back()
+    }
+    pub fn best_ask(&self) -> Option<&LevelData> {
+        self.asks.values().next()
+    }
+    pub fn bids(&self) -> &BTreeMap<u64, LevelData> {
+        &self.bids
+    }
+    pub fn asks(&self) -> &BTreeMap<u64, LevelData> {
+        &self.asks
+    }
 
-    pub fn best_trailing_buy_stop(&self) -> Option<&LevelData> { self.trailing_buy_stop.values().next() }
-    pub fn best_trailing_sell_stop(&self) -> Option<&LevelData> { self.trailing_sell_stop.values().next_back() }
-    pub fn trailing_buy_stop(&self) -> &BTreeMap<u64, LevelData> { &self.trailing_buy_stop }
-    pub fn trailing_sell_stop(&self) -> &BTreeMap<u64, LevelData> { &self.trailing_sell_stop }
+    pub fn best_buy_stop(&self) -> Option<&LevelData> {
+        self.buy_stop.values().next()
+    }
+    pub fn best_sell_stop(&self) -> Option<&LevelData> {
+        self.sell_stop.values().next_back()
+    }
+    pub fn buy_stop(&self) -> &BTreeMap<u64, LevelData> {
+        &self.buy_stop
+    }
+    pub fn sell_stop(&self) -> &BTreeMap<u64, LevelData> {
+        &self.sell_stop
+    }
 
-    pub fn get_bid(&self, price: u64) -> Option<&LevelData> { self.bids.get(&price) }
-    pub fn get_ask(&self, price: u64) -> Option<&LevelData> { self.asks.get(&price) }
+    pub fn best_trailing_buy_stop(&self) -> Option<&LevelData> {
+        self.trailing_buy_stop.values().next()
+    }
+    pub fn best_trailing_sell_stop(&self) -> Option<&LevelData> {
+        self.trailing_sell_stop.values().next_back()
+    }
+    pub fn trailing_buy_stop(&self) -> &BTreeMap<u64, LevelData> {
+        &self.trailing_buy_stop
+    }
+    pub fn trailing_sell_stop(&self) -> &BTreeMap<u64, LevelData> {
+        &self.trailing_sell_stop
+    }
+
+    pub fn get_bid(&self, price: u64) -> Option<&LevelData> {
+        self.bids.get(&price)
+    }
+    pub fn get_ask(&self, price: u64) -> Option<&LevelData> {
+        self.asks.get(&price)
+    }
 
     // -- Market price helpers --------------------------------------------------
 
@@ -133,11 +166,19 @@ impl OrderBook {
     }
 
     pub fn update_last_price(&mut self, order: &Order, price: u64) {
-        if order.is_buy() { self.last_bid_price = price; } else { self.last_ask_price = price; }
+        if order.is_buy() {
+            self.last_bid_price = price;
+        } else {
+            self.last_ask_price = price;
+        }
     }
 
     pub fn update_matching_price(&mut self, order: &Order, price: u64) {
-        if order.is_buy() { self.matching_bid_price = price; } else { self.matching_ask_price = price; }
+        if order.is_buy() {
+            self.matching_bid_price = price;
+        } else {
+            self.matching_ask_price = price;
+        }
     }
 
     pub fn reset_matching_price(&mut self) {
@@ -190,20 +231,36 @@ impl OrderBook {
     /// Compute `top` flag for a given price and side (immutable access only).
     fn is_top(&self, order: &Order) -> bool {
         if order.is_buy() {
-            self.bids.values().next_back().is_some_and(|l| l.level.price == order.price)
+            self.bids
+                .values()
+                .next_back()
+                .is_some_and(|l| l.level.price == order.price)
         } else {
-            self.asks.values().next().is_some_and(|l| l.level.price == order.price)
+            self.asks
+                .values()
+                .next()
+                .is_some_and(|l| l.level.price == order.price)
         }
     }
 
     /// Add a limit order to the book. Returns the level update notification.
     pub fn add_order(&mut self, order: &Order) -> LevelUpdate {
         let top = self.is_top(order);
-        let levels = if order.is_buy() { &mut self.bids } else { &mut self.asks };
-        let level_type = if order.is_buy() { LevelType::Bid } else { LevelType::Ask };
+        let levels = if order.is_buy() {
+            &mut self.bids
+        } else {
+            &mut self.asks
+        };
+        let level_type = if order.is_buy() {
+            LevelType::Bid
+        } else {
+            LevelType::Ask
+        };
 
         let is_new = !levels.contains_key(&order.price);
-        let level = levels.entry(order.price).or_insert_with(|| LevelData::new(level_type, order.price));
+        let level = levels
+            .entry(order.price)
+            .or_insert_with(|| LevelData::new(level_type, order.price));
 
         level.level.total_volume += order.leaves_quantity;
         level.level.hidden_volume += order.hidden_quantity();
@@ -211,14 +268,28 @@ impl OrderBook {
         level.order_queue.push_back(order.id);
         level.level.orders += 1;
 
-        let update_type = if is_new { UpdateType::Add } else { UpdateType::Update };
+        let update_type = if is_new {
+            UpdateType::Add
+        } else {
+            UpdateType::Update
+        };
         LevelUpdate::new(update_type, level.level.clone(), top)
     }
 
     /// Reduce a limit order by `quantity`. Returns the level update notification.
-    pub fn reduce_order(&mut self, order: &Order, quantity: u64, hidden: u64, visible: u64) -> LevelUpdate {
+    pub fn reduce_order(
+        &mut self,
+        order: &Order,
+        quantity: u64,
+        hidden: u64,
+        visible: u64,
+    ) -> LevelUpdate {
         let top = self.is_top(order);
-        let levels = if order.is_buy() { &mut self.bids } else { &mut self.asks };
+        let levels = if order.is_buy() {
+            &mut self.bids
+        } else {
+            &mut self.asks
+        };
 
         let mut delete_level = false;
         let mut level_snapshot = None;
@@ -229,7 +300,7 @@ impl OrderBook {
             level.level.visible_volume -= visible;
 
             if order.leaves_quantity == 0 {
-                level.order_queue.pop_front();
+                level.order_queue.retain(|&id| id != order.id);
                 level.level.orders -= 1;
             }
 
@@ -253,7 +324,11 @@ impl OrderBook {
     /// Delete a limit order entirely. Returns the level update notification.
     pub fn delete_order(&mut self, order: &Order) -> LevelUpdate {
         let top = self.is_top(order);
-        let levels = if order.is_buy() { &mut self.bids } else { &mut self.asks };
+        let levels = if order.is_buy() {
+            &mut self.bids
+        } else {
+            &mut self.asks
+        };
 
         let mut delete_level = false;
         let mut level_snapshot = None;
@@ -290,7 +365,9 @@ impl OrderBook {
         } else {
             (&mut self.sell_stop, LevelType::Bid)
         };
-        let level = levels.entry(order.stop_price).or_insert_with(|| LevelData::new(level_type, order.stop_price));
+        let level = levels
+            .entry(order.stop_price)
+            .or_insert_with(|| LevelData::new(level_type, order.stop_price));
         level.level.total_volume += order.leaves_quantity;
         level.level.hidden_volume += order.hidden_quantity();
         level.level.visible_volume += order.visible_quantity();
@@ -299,14 +376,18 @@ impl OrderBook {
     }
 
     pub fn reduce_stop_order(&mut self, order: &Order, quantity: u64, hidden: u64, visible: u64) {
-        let levels = if order.is_buy() { &mut self.buy_stop } else { &mut self.sell_stop };
+        let levels = if order.is_buy() {
+            &mut self.buy_stop
+        } else {
+            &mut self.sell_stop
+        };
         let mut remove = false;
         if let Some(level) = levels.get_mut(&order.stop_price) {
             level.level.total_volume -= quantity;
             level.level.hidden_volume -= hidden;
             level.level.visible_volume -= visible;
             if order.leaves_quantity == 0 {
-                level.order_queue.pop_front();
+                level.order_queue.retain(|&id| id != order.id);
                 level.level.orders -= 1;
             }
             if level.level.total_volume == 0 {
@@ -319,7 +400,11 @@ impl OrderBook {
     }
 
     pub fn delete_stop_order(&mut self, order: &Order) {
-        let levels = if order.is_buy() { &mut self.buy_stop } else { &mut self.sell_stop };
+        let levels = if order.is_buy() {
+            &mut self.buy_stop
+        } else {
+            &mut self.sell_stop
+        };
         let mut remove = false;
         if let Some(level) = levels.get_mut(&order.stop_price) {
             level.level.total_volume -= order.leaves_quantity;
@@ -344,7 +429,9 @@ impl OrderBook {
         } else {
             (&mut self.trailing_sell_stop, LevelType::Bid)
         };
-        let level = levels.entry(order.stop_price).or_insert_with(|| LevelData::new(level_type, order.stop_price));
+        let level = levels
+            .entry(order.stop_price)
+            .or_insert_with(|| LevelData::new(level_type, order.stop_price));
         level.level.total_volume += order.leaves_quantity;
         level.level.hidden_volume += order.hidden_quantity();
         level.level.visible_volume += order.visible_quantity();
@@ -352,15 +439,25 @@ impl OrderBook {
         level.level.orders += 1;
     }
 
-    pub fn reduce_trailing_stop_order(&mut self, order: &Order, quantity: u64, hidden: u64, visible: u64) {
-        let levels = if order.is_buy() { &mut self.trailing_buy_stop } else { &mut self.trailing_sell_stop };
+    pub fn reduce_trailing_stop_order(
+        &mut self,
+        order: &Order,
+        quantity: u64,
+        hidden: u64,
+        visible: u64,
+    ) {
+        let levels = if order.is_buy() {
+            &mut self.trailing_buy_stop
+        } else {
+            &mut self.trailing_sell_stop
+        };
         let mut remove = false;
         if let Some(level) = levels.get_mut(&order.stop_price) {
             level.level.total_volume -= quantity;
             level.level.hidden_volume -= hidden;
             level.level.visible_volume -= visible;
             if order.leaves_quantity == 0 {
-                level.order_queue.pop_front();
+                level.order_queue.retain(|&id| id != order.id);
                 level.level.orders -= 1;
             }
             if level.level.total_volume == 0 {
@@ -373,7 +470,11 @@ impl OrderBook {
     }
 
     pub fn delete_trailing_stop_order(&mut self, order: &Order) {
-        let levels = if order.is_buy() { &mut self.trailing_buy_stop } else { &mut self.trailing_sell_stop };
+        let levels = if order.is_buy() {
+            &mut self.trailing_buy_stop
+        } else {
+            &mut self.trailing_sell_stop
+        };
         let mut remove = false;
         if let Some(level) = levels.get_mut(&order.stop_price) {
             level.level.total_volume -= order.leaves_quantity;
@@ -396,7 +497,9 @@ impl std::fmt::Display for OrderBook {
         write!(
             f,
             "OrderBook({} bids={} asks={})",
-            self.symbol, self.bids.len(), self.asks.len(),
+            self.symbol,
+            self.bids.len(),
+            self.asks.len(),
         )
     }
 }
