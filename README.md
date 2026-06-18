@@ -200,15 +200,15 @@ Results on AMD EPYC (single-core, Linux):
 
 | Scenario | Time | Throughput |
 |---|---|---|
-| Limit add × 100 | 12 µs | **8.3M orders/sec** |
-| Limit add × 1,000 | 73 µs | **13.7M orders/sec** |
-| Limit add × 10,000 | 620 µs | **16.1M orders/sec** |
-| Market sweep 1 level × 1,000 | 48 µs | **20.8M trades/sec** |
-| Market sweep 10 levels × 100 | 49 µs | **20.4M trades/sec** |
-| FOK success across 10 levels | 47 µs | **21.3M trades/sec** |
-| FOK fail scan 10 levels | 2.7 µs | — |
-| Reduce 100 non-front orders | 4.9 µs | **20.4M ops/sec** |
-| Activate 1,000 stop orders | 79 µs | **12.7M ops/sec** |
+| Batch limit add (100 orders, no match) | 12 µs | **8.3M orders/sec** |
+| Batch limit add (1,000 orders, no match) | 73 µs | **13.7M orders/sec** |
+| Batch limit add (10,000 orders, no match) | 620 µs | **16.1M orders/sec** |
+| Market sweep (1 level, 1,000 resting orders) | 48 µs | **20.8M trades/sec** |
+| Market sweep (10 levels, 100 orders each) | 49 µs | **20.4M trades/sec** |
+| FOK success across 10 price levels | 47 µs | **21.3M trades/sec** |
+| FOK fail — scan 10 levels, insufficient volume | 2.7 µs | — |
+| Batch reduce non-front orders (100, same level) | 4.9 µs | **20.4M ops/sec** |
+| Batch activate stop orders (1,000) | 79 µs | **12.7M ops/sec** |
 
 ## Usage
 
