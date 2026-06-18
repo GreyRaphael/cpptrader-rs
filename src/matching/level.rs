@@ -6,7 +6,7 @@
 use crate::matching::types::{LevelType, UpdateType};
 
 /// A price level in the order book.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Level {
     pub level_type: LevelType,
     pub price: u64,
@@ -49,7 +49,7 @@ impl std::fmt::Display for Level {
 }
 
 /// Notification about a price-level change.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct LevelUpdate {
     pub update_type: UpdateType,
     pub level: Level,

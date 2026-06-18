@@ -5,6 +5,8 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
+use hashbrown::HashSet;
+
 use crate::matching::level::{Level, LevelUpdate};
 use crate::matching::order::{Order, OrderId};
 use crate::matching::symbol::Symbol;
@@ -19,7 +21,11 @@ use crate::matching::types::{LevelType, UpdateType};
 pub struct LevelData {
     pub level: Level,
     /// FIFO queue of order IDs at this level (time-priority).
+    ///
+    /// Canceled/reduced non-front orders are lazily removed and skipped by
+    /// [`LevelData::front_order_id`] / [`LevelData::order_ids`].
     pub order_queue: VecDeque<OrderId>,
+    tombstones: HashSet<OrderId>,
 }
 
 impl LevelData {
@@ -27,15 +33,50 @@ impl LevelData {
         Self {
             level: Level::new(level_type, price),
             order_queue: VecDeque::new(),
+            tombstones: HashSet::new(),
         }
     }
-}
 
-fn remove_filled_order(queue: &mut VecDeque<OrderId>, order_id: OrderId) {
-    if queue.front().is_some_and(|&id| id == order_id) {
-        queue.pop_front();
-    } else {
-        queue.retain(|&id| id != order_id);
+    pub fn front_order_id(&self) -> Option<OrderId> {
+        self.order_queue.front().copied()
+    }
+
+    pub fn has_tombstones(&self) -> bool {
+        !self.tombstones.is_empty()
+    }
+
+    pub fn order_ids(&self) -> impl Iterator<Item = OrderId> + '_ {
+        self.order_queue
+            .iter()
+            .copied()
+            .filter(|id| !self.tombstones.contains(id))
+    }
+
+    fn push_order_id(&mut self, order_id: OrderId) {
+        self.order_queue.push_back(order_id);
+    }
+
+    fn remove_order_id(&mut self, order_id: OrderId) -> bool {
+        if self.order_queue.front().is_some_and(|&id| id == order_id) {
+            self.order_queue.pop_front();
+            self.cleanup_front();
+        } else {
+            self.tombstones.insert(order_id);
+        }
+        true
+    }
+
+    fn cleanup_front(&mut self) {
+        if self.tombstones.is_empty() {
+            return;
+        }
+
+        while let Some(order_id) = self.order_queue.front().copied() {
+            if !self.tombstones.remove(&order_id) {
+                break;
+            }
+            self.order_queue.pop_front();
+        }
     }
 }
 
@@ -273,7 +314,7 @@ impl OrderBook {
         level.level.total_volume += order.leaves_quantity;
         level.level.hidden_volume += order.hidden_quantity();
         level.level.visible_volume += order.visible_quantity();
-        level.order_queue.push_back(order.id);
+        level.push_order_id(order.id);
         level.level.orders += 1;
 
         let update_type = if is_new {
@@ -281,7 +322,7 @@ impl OrderBook {
         } else {
             UpdateType::Update
         };
-        LevelUpdate::new(update_type, level.level.clone(), top)
+        LevelUpdate::new(update_type, level.level, top)
     }
 
     /// Reduce a limit order by `quantity`. Returns the level update notification.
@@ -307,12 +348,11 @@ impl OrderBook {
             level.level.hidden_volume -= hidden;
             level.level.visible_volume -= visible;
 
-            if order.leaves_quantity == 0 {
-                remove_filled_order(&mut level.order_queue, order.id);
+            if order.leaves_quantity == 0 && level.remove_order_id(order.id) {
                 level.level.orders -= 1;
             }
 
-            level_snapshot = Some(level.level.clone());
+            level_snapshot = Some(level.level);
 
             if level.level.total_volume == 0 {
                 delete_level = true;
@@ -345,10 +385,11 @@ impl OrderBook {
             level.level.total_volume -= order.leaves_quantity;
             level.level.hidden_volume -= order.hidden_quantity();
             level.level.visible_volume -= order.visible_quantity();
-            level.order_queue.retain(|&id| id != order.id);
-            level.level.orders -= 1;
+            if level.remove_order_id(order.id) {
+                level.level.orders -= 1;
+            }
 
-            level_snapshot = Some(level.level.clone());
+            level_snapshot = Some(level.level);
 
             if level.level.total_volume == 0 {
                 delete_level = true;
@@ -379,7 +420,7 @@ impl OrderBook {
         level.level.total_volume += order.leaves_quantity;
         level.level.hidden_volume += order.hidden_quantity();
         level.level.visible_volume += order.visible_quantity();
-        level.order_queue.push_back(order.id);
+        level.push_order_id(order.id);
         level.level.orders += 1;
     }
 
@@ -394,8 +435,7 @@ impl OrderBook {
             level.level.total_volume -= quantity;
             level.level.hidden_volume -= hidden;
             level.level.visible_volume -= visible;
-            if order.leaves_quantity == 0 {
-                remove_filled_order(&mut level.order_queue, order.id);
+            if order.leaves_quantity == 0 && level.remove_order_id(order.id) {
                 level.level.orders -= 1;
             }
             if level.level.total_volume == 0 {
@@ -418,8 +458,9 @@ impl OrderBook {
             level.level.total_volume -= order.leaves_quantity;
             level.level.hidden_volume -= order.hidden_quantity();
             level.level.visible_volume -= order.visible_quantity();
-            level.order_queue.retain(|&id| id != order.id);
-            level.level.orders -= 1;
+            if level.remove_order_id(order.id) {
+                level.level.orders -= 1;
+            }
             if level.level.total_volume == 0 {
                 remove = true;
             }
@@ -443,7 +484,7 @@ impl OrderBook {
         level.level.total_volume += order.leaves_quantity;
         level.level.hidden_volume += order.hidden_quantity();
         level.level.visible_volume += order.visible_quantity();
-        level.order_queue.push_back(order.id);
+        level.push_order_id(order.id);
         level.level.orders += 1;
     }
 
@@ -464,8 +505,7 @@ impl OrderBook {
             level.level.total_volume -= quantity;
             level.level.hidden_volume -= hidden;
             level.level.visible_volume -= visible;
-            if order.leaves_quantity == 0 {
-                remove_filled_order(&mut level.order_queue, order.id);
+            if order.leaves_quantity == 0 && level.remove_order_id(order.id) {
                 level.level.orders -= 1;
             }
             if level.level.total_volume == 0 {
@@ -488,8 +528,9 @@ impl OrderBook {
             level.level.total_volume -= order.leaves_quantity;
             level.level.hidden_volume -= order.hidden_quantity();
             level.level.visible_volume -= order.visible_quantity();
-            level.order_queue.retain(|&id| id != order.id);
-            level.level.orders -= 1;
+            if level.remove_order_id(order.id) {
+                level.level.orders -= 1;
+            }
             if level.level.total_volume == 0 {
                 remove = true;
             }

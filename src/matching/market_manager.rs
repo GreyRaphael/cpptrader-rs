@@ -1058,8 +1058,8 @@ impl MarketManager {
                 .and_then(|ob| {
                     let bid = ob.best_bid()?;
                     let ask = ob.best_ask()?;
-                    let bid_order = *bid.order_queue.front()?;
-                    let ask_order = *ask.order_queue.front()?;
+                    let bid_order = bid.front_order_id()?;
+                    let ask_order = ask.front_order_id()?;
                     Some((bid_order, ask_order, bid.level.price, ask.level.price))
                 });
 
@@ -1221,10 +1221,10 @@ impl MarketManager {
                 .and_then(|ob| {
                     if order.is_buy() {
                         let ask = ob.best_ask()?;
-                        Some((ask.level.price, *ask.order_queue.front()?))
+                        Some((ask.level.price, ask.front_order_id()?))
                     } else {
                         let bid = ob.best_bid()?;
-                        Some((bid.level.price, *bid.order_queue.front()?))
+                        Some((bid.level.price, bid.front_order_id()?))
                     }
                 });
 
@@ -1417,7 +1417,11 @@ impl MarketManager {
             if !arbitrage {
                 return false;
             }
-            level.order_queue.iter().copied().collect()
+            if level.has_tombstones() {
+                level.order_ids().collect()
+            } else {
+                level.order_queue.iter().copied().collect()
+            }
         };
 
         for order_id in order_ids {
@@ -1470,7 +1474,11 @@ impl MarketManager {
             if !arbitrage {
                 return false;
             }
-            level.order_queue.iter().copied().collect()
+            if level.has_tombstones() {
+                level.order_ids().collect()
+            } else {
+                level.order_queue.iter().copied().collect()
+            }
         };
 
         for order_id in order_ids {
@@ -1567,6 +1575,39 @@ impl MarketManager {
 
     // -- Matching chain calculation --------------------------------------------
 
+    fn accumulate_level_volume(
+        &self,
+        level: &crate::matching::order_book::LevelData,
+        available: &mut u64,
+        volume: u64,
+    ) -> bool {
+        if level.has_tombstones() {
+            for order_id in level.order_ids() {
+                if *available >= volume {
+                    return true;
+                }
+                let qty = self
+                    .orders
+                    .get(&order_id)
+                    .map_or(0, |s| s.order.leaves_quantity);
+                *available += qty;
+            }
+        } else {
+            for &order_id in &level.order_queue {
+                if *available >= volume {
+                    return true;
+                }
+                let qty = self
+                    .orders
+                    .get(&order_id)
+                    .map_or(0, |s| s.order.leaves_quantity);
+                *available += qty;
+            }
+        }
+
+        *available >= volume
+    }
+
     fn calculate_matching_chain_volume(
         &self,
         symbol_id: u32,
@@ -1587,28 +1628,14 @@ impl MarketManager {
 
         if is_buy {
             for (_price, level) in ob.asks().range(..=level_price) {
-                for &order_id in &level.order_queue {
-                    if available >= volume {
-                        return available;
-                    }
-                    let qty = self
-                        .orders
-                        .get(&order_id)
-                        .map_or(0, |s| s.order.leaves_quantity);
-                    available += qty;
+                if self.accumulate_level_volume(level, &mut available, volume) {
+                    return available;
                 }
             }
         } else {
             for (_price, level) in ob.bids().range(level_price..).rev() {
-                for &order_id in &level.order_queue {
-                    if available >= volume {
-                        return available;
-                    }
-                    let qty = self
-                        .orders
-                        .get(&order_id)
-                        .map_or(0, |s| s.order.leaves_quantity);
-                    available += qty;
+                if self.accumulate_level_volume(level, &mut available, volume) {
+                    return available;
                 }
             }
         }
@@ -1626,7 +1653,7 @@ impl MarketManager {
                 .get(symbol_id as usize)
                 .and_then(|o| o.as_ref())
                 .and_then(|ob| ob.best_bid())
-                .and_then(|l| l.order_queue.front().copied());
+                .and_then(|l| l.front_order_id());
 
             let order_id = match order_id {
                 Some(id) => id,
@@ -1699,7 +1726,7 @@ impl MarketManager {
                 .get(symbol_id as usize)
                 .and_then(|o| o.as_ref())
                 .and_then(|ob| ob.best_ask())
-                .and_then(|l| l.order_queue.front().copied());
+                .and_then(|l| l.front_order_id());
 
             let order_id = match order_id {
                 Some(id) => id,
@@ -1785,13 +1812,11 @@ impl MarketManager {
                                 .range(..=limit_price)
                                 .next()
                                 .and_then(|(&price, level)| {
-                                    level.order_queue.front().copied().map(|id| (price, id))
+                                    level.front_order_id().map(|id| (price, id))
                                 })
                         } else {
                             ob.bids().range(limit_price..).next_back().and_then(
-                                |(&price, level)| {
-                                    level.order_queue.front().copied().map(|id| (price, id))
-                                },
+                                |(&price, level)| level.front_order_id().map(|id| (price, id)),
                             )
                         }
                     });
@@ -1880,7 +1905,7 @@ impl MarketManager {
             };
             let mut updates = Vec::new();
             for level in levels.values() {
-                for &order_id in &level.order_queue {
+                for order_id in level.order_ids() {
                     if let Some(slot) = self.orders.get(&order_id) {
                         let new_price = ob.calculate_trailing_stop_price(&slot.order);
                         if new_price != slot.order.stop_price {
