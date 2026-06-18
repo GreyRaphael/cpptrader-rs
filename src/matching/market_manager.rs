@@ -40,6 +40,46 @@ pub struct MarketManager {
 }
 
 impl MarketManager {
+    #[inline]
+    fn on_add_symbol(&mut self, symbol: &Symbol) {
+        self.handler.on_add_symbol(symbol);
+    }
+
+    #[inline]
+    fn on_delete_symbol(&mut self, symbol: &Symbol) {
+        self.handler.on_delete_symbol(symbol);
+    }
+
+    #[inline]
+    fn on_add_order_book(&mut self, order_book: &OrderBook) {
+        self.handler.on_add_order_book(order_book);
+    }
+
+    #[inline]
+    fn on_delete_order_book(&mut self, order_book: &OrderBook) {
+        self.handler.on_delete_order_book(order_book);
+    }
+
+    #[inline]
+    fn on_add_order(&mut self, order: &Order) {
+        self.handler.on_add_order(order);
+    }
+
+    #[inline]
+    fn on_update_order(&mut self, order: &Order) {
+        self.handler.on_update_order(order);
+    }
+
+    #[inline]
+    fn on_delete_order(&mut self, order: &Order) {
+        self.handler.on_delete_order(order);
+    }
+
+    #[inline]
+    fn on_execute_order(&mut self, order: &Order, price: u64, quantity: u64) {
+        self.handler.on_execute_order(order, price, quantity);
+    }
+
     /// Create with a custom event handler.
     pub fn new(handler: Box<dyn MarketHandler>) -> Self {
         Self {
@@ -90,7 +130,7 @@ impl MarketManager {
         if self.symbols[idx].is_some() {
             return Err(ErrorCode::SymbolDuplicate);
         }
-        self.handler.on_add_symbol(&symbol);
+        self.on_add_symbol(&symbol);
         self.symbols[idx] = Some(symbol);
         Ok(())
     }
@@ -99,7 +139,7 @@ impl MarketManager {
         let idx = id as usize;
         let symbol = self.symbols.get(idx).and_then(|s| *s);
         let symbol = symbol.ok_or(ErrorCode::SymbolNotFound)?;
-        self.handler.on_delete_symbol(&symbol);
+        self.on_delete_symbol(&symbol);
         self.symbols[idx] = None;
         Ok(())
     }
@@ -118,7 +158,7 @@ impl MarketManager {
             return Err(ErrorCode::OrderBookDuplicate);
         }
         let ob = OrderBook::new(*symbol);
-        self.handler.on_add_order_book(&ob);
+        self.on_add_order_book(&ob);
         self.order_books[idx] = Some(ob);
         Ok(())
     }
@@ -135,7 +175,7 @@ impl MarketManager {
         }
         // Borrow-checker-friendly: take ownership, notify, drop.
         let ob = self.order_books[idx].take().unwrap();
-        self.handler.on_delete_order_book(&ob);
+        self.on_delete_order_book(&ob);
         drop(ob);
         Ok(())
     }
@@ -303,11 +343,11 @@ impl MarketManager {
         price: u64,
         mut quantity: u64,
     ) -> Result<()> {
-        let slot = self.orders.get_mut(&id).ok_or(ErrorCode::OrderNotFound)?;
-        quantity = quantity.min(slot.order.leaves_quantity);
+        let order_before_execute = self.orders.get(&id).ok_or(ErrorCode::OrderNotFound)?.order;
+        quantity = quantity.min(order_before_execute.leaves_quantity);
 
         // Notify handler
-        self.handler.on_execute_order(&slot.order, price, quantity);
+        self.on_execute_order(&order_before_execute, price, quantity);
 
         // Update market prices
         if let Some(ob) = self
@@ -315,13 +355,14 @@ impl MarketManager {
             .get_mut(symbol_id as usize)
             .and_then(|o| o.as_mut())
         {
-            ob.update_last_price(&slot.order, price);
-            ob.update_matching_price(&slot.order, price);
+            ob.update_last_price(&order_before_execute, price);
+            ob.update_matching_price(&order_before_execute, price);
         }
 
         // Update order quantities
-        let hidden_before = slot.order.hidden_quantity();
-        let visible_before = slot.order.visible_quantity();
+        let hidden_before = order_before_execute.hidden_quantity();
+        let visible_before = order_before_execute.visible_quantity();
+        let slot = self.orders.get_mut(&id).ok_or(ErrorCode::OrderNotFound)?;
         slot.order.executed_quantity += quantity;
         slot.order.leaves_quantity -= quantity;
         let hidden_after = slot.order.hidden_quantity();
@@ -351,10 +392,10 @@ impl MarketManager {
         }
 
         if order.leaves_quantity == 0 {
-            self.handler.on_delete_order(&order);
+            self.on_delete_order(&order);
             self.orders.remove(&id);
         } else {
-            self.handler.on_update_order(&order);
+            self.on_update_order(&order);
         }
 
         if self.matching {
@@ -374,13 +415,13 @@ impl MarketManager {
 
     fn add_market_order(&mut self, mut order: Order, recursive: bool) -> Result<()> {
         let symbol_id = order.symbol_id;
-        self.handler.on_add_order(&order);
+        self.on_add_order(&order);
 
         if self.matching && !recursive {
             self.match_market(symbol_id, &mut order);
         }
 
-        self.handler.on_delete_order(&order);
+        self.on_delete_order(&order);
 
         if self.matching && !recursive {
             self.match_book(symbol_id);
@@ -397,7 +438,7 @@ impl MarketManager {
 
     fn add_limit_order(&mut self, mut order: Order, recursive: bool) -> Result<()> {
         let symbol_id = order.symbol_id;
-        self.handler.on_add_order(&order);
+        self.on_add_order(&order);
 
         if self.matching && !recursive {
             self.match_limit(symbol_id, &mut order);
@@ -405,7 +446,7 @@ impl MarketManager {
 
         if order.leaves_quantity > 0 && !order.is_ioc() && !order.is_fok() {
             if self.orders.contains_key(&order.id) {
-                self.handler.on_delete_order(&order);
+                self.on_delete_order(&order);
                 return Err(ErrorCode::OrderDuplicate);
             }
             let order_clone = order;
@@ -420,7 +461,7 @@ impl MarketManager {
                 self.update_level(symbol_id, &update);
             }
         } else {
-            self.handler.on_delete_order(&order);
+            self.on_delete_order(&order);
         }
 
         if self.matching && !recursive {
@@ -449,7 +490,7 @@ impl MarketManager {
             order.stop_price = ob.calculate_trailing_stop_price(&order);
         }
 
-        self.handler.on_add_order(&order);
+        self.on_add_order(&order);
 
         if self.matching && !recursive {
             let stop_price = if order.is_buy() {
@@ -477,9 +518,9 @@ impl MarketManager {
                 } else {
                     crate::matching::types::OrderTimeInForce::Ioc
                 };
-                self.handler.on_update_order(&order);
+                self.on_update_order(&order);
                 self.match_market(symbol_id, &mut order);
-                self.handler.on_delete_order(&order);
+                self.on_delete_order(&order);
                 if self.matching {
                     self.match_book(symbol_id);
                 }
@@ -496,7 +537,7 @@ impl MarketManager {
 
         if order.leaves_quantity > 0 {
             if self.orders.contains_key(&order.id) {
-                self.handler.on_delete_order(&order);
+                self.on_delete_order(&order);
                 return Err(ErrorCode::OrderDuplicate);
             }
             let order_clone = order;
@@ -515,7 +556,7 @@ impl MarketManager {
                 }
             }
         } else {
-            self.handler.on_delete_order(&order);
+            self.on_delete_order(&order);
         }
 
         if self.matching && !recursive {
@@ -545,7 +586,7 @@ impl MarketManager {
             order.price = (order.stop_price as i64 + diff) as u64;
         }
 
-        self.handler.on_add_order(&order);
+        self.on_add_order(&order);
 
         if self.matching && !recursive {
             let stop_price = if order.is_buy() {
@@ -567,12 +608,12 @@ impl MarketManager {
             if arbitrage {
                 order.order_type = OrderType::Limit;
                 order.stop_price = 0;
-                self.handler.on_update_order(&order);
+                self.on_update_order(&order);
                 self.match_limit(symbol_id, &mut order);
 
                 if order.leaves_quantity > 0 && !order.is_ioc() && !order.is_fok() {
                     if self.orders.contains_key(&order.id) {
-                        self.handler.on_delete_order(&order);
+                        self.on_delete_order(&order);
                         return Err(ErrorCode::OrderDuplicate);
                     }
                     let oc = order;
@@ -586,7 +627,7 @@ impl MarketManager {
                         self.update_level(symbol_id, &update);
                     }
                 } else {
-                    self.handler.on_delete_order(&order);
+                    self.on_delete_order(&order);
                 }
 
                 if self.matching {
@@ -605,7 +646,7 @@ impl MarketManager {
 
         if order.leaves_quantity > 0 {
             if self.orders.contains_key(&order.id) {
-                self.handler.on_delete_order(&order);
+                self.on_delete_order(&order);
                 return Err(ErrorCode::OrderDuplicate);
             }
             let order_clone = order;
@@ -624,7 +665,7 @@ impl MarketManager {
                 }
             }
         } else {
-            self.handler.on_delete_order(&order);
+            self.on_delete_order(&order);
         }
 
         if self.matching && !recursive {
@@ -674,7 +715,7 @@ impl MarketManager {
         let order = self.orders[&id].order;
 
         if order.leaves_quantity > 0 {
-            self.handler.on_update_order(&order);
+            self.on_update_order(&order);
             if let Some(ob) = self
                 .order_books
                 .get_mut(symbol_id as usize)
@@ -699,7 +740,7 @@ impl MarketManager {
                 }
             }
         } else {
-            self.handler.on_delete_order(&order);
+            self.on_delete_order(&order);
             if let Some(ob) = self
                 .order_books
                 .get_mut(symbol_id as usize)
@@ -802,7 +843,7 @@ impl MarketManager {
         let mut order = self.orders[&id].order;
 
         if order.leaves_quantity > 0 {
-            self.handler.on_update_order(&order);
+            self.on_update_order(&order);
 
             if self.matching && !recursive {
                 self.match_limit(symbol_id, &mut order);
@@ -846,7 +887,7 @@ impl MarketManager {
             .is_some_and(|s| s.order.leaves_quantity == 0)
         {
             let order = self.orders[&id].order;
-            self.handler.on_delete_order(&order);
+            self.on_delete_order(&order);
             self.orders.remove(&id);
         }
 
@@ -902,7 +943,8 @@ impl MarketManager {
             }
         }
 
-        self.handler.on_delete_order(&self.orders[&id].order);
+        let old_order = self.orders[&id].order;
+        self.on_delete_order(&old_order);
 
         // Transform in-place
         {
@@ -915,7 +957,7 @@ impl MarketManager {
         }
 
         let order = self.orders.remove(&id).unwrap().order;
-        self.handler.on_add_order(&order);
+        self.on_add_order(&order);
 
         if self.matching && !recursive {
             // Need to match, but we just removed it. Re-insert temporarily.
@@ -948,13 +990,13 @@ impl MarketManager {
             } else {
                 let order = self.orders.remove(&order_mut.id).map(|s| s.order);
                 if let Some(order) = order {
-                    self.handler.on_delete_order(&order);
+                    self.on_delete_order(&order);
                 }
             }
         } else {
             // No matching — just insert
             if self.orders.contains_key(&order.id) {
-                self.handler.on_delete_order(&order);
+                self.on_delete_order(&order);
                 return Err(ErrorCode::OrderDuplicate);
             }
             if order.leaves_quantity > 0 {
@@ -967,7 +1009,7 @@ impl MarketManager {
                     ob.add_order(&order);
                 }
             } else {
-                self.handler.on_delete_order(&order);
+                self.on_delete_order(&order);
             }
         }
 
@@ -1015,7 +1057,7 @@ impl MarketManager {
             }
         }
 
-        self.handler.on_delete_order(&order);
+        self.on_delete_order(&order);
 
         if self.matching && !recursive {
             self.match_book(symbol_id);
@@ -1134,8 +1176,8 @@ impl MarketManager {
                 let price = self.orders.get(&exec_price).map_or(0, |s| s.order.price);
 
                 // Execute the smaller order
-                self.handler
-                    .on_execute_order(&self.orders[&exec_id].order, price, exec_qty);
+                let exec_order_for_callback = self.orders[&exec_id].order;
+                self.on_execute_order(&exec_order_for_callback, price, exec_qty);
                 if let Some(ob) = self
                     .order_books
                     .get_mut(symbol_id as usize)
@@ -1157,11 +1199,11 @@ impl MarketManager {
                 {
                     ob.delete_order(&exec_order);
                 }
-                self.handler.on_delete_order(&exec_order);
+                self.on_delete_order(&exec_order);
 
                 // Reduce the larger order
-                self.handler
-                    .on_execute_order(&self.orders[&reduce_id].order, price, exec_qty);
+                let reduce_order_for_callback = self.orders[&reduce_id].order;
+                self.on_execute_order(&reduce_order_for_callback, price, exec_qty);
                 if let Some(ob) = self
                     .order_books
                     .get_mut(symbol_id as usize)
@@ -1255,26 +1297,7 @@ impl MarketManager {
                     return;
                 }
 
-                let fills = self.execute_matching_chain_at(
-                    symbol_id,
-                    order.price,
-                    order.leaves_quantity,
-                    order.is_buy(),
-                );
-                let executed_quantity: u64 = fills.iter().map(|(_, quantity)| *quantity).sum();
-                for (price, quantity) in fills {
-                    self.handler.on_execute_order(order, price, quantity);
-                    if let Some(ob) = self
-                        .order_books
-                        .get_mut(symbol_id as usize)
-                        .and_then(|o| o.as_mut())
-                    {
-                        ob.update_last_price(order, price);
-                        ob.update_matching_price(order, price);
-                    }
-                }
-                order.executed_quantity += executed_quantity;
-                order.leaves_quantity -= executed_quantity;
+                self.execute_matching_chain_at(symbol_id, order.price, order.is_buy(), order);
                 return;
             }
 
@@ -1296,8 +1319,8 @@ impl MarketManager {
             let price = self.orders.get(&opposing_id).map_or(0, |s| s.order.price);
 
             // Execute opposing order
-            self.handler
-                .on_execute_order(&self.orders[&opposing_id].order, price, quantity);
+            let opposing_order_for_callback = self.orders[&opposing_id].order;
+            self.on_execute_order(&opposing_order_for_callback, price, quantity);
             if let Some(ob) = self
                 .order_books
                 .get_mut(symbol_id as usize)
@@ -1313,7 +1336,7 @@ impl MarketManager {
             self.reduce_order_impl(opposing_id, quantity, true).ok();
 
             // Update incoming order
-            self.handler.on_execute_order(order, price, quantity);
+            self.on_execute_order(order, price, quantity);
             if let Some(ob) = self
                 .order_books
                 .get_mut(symbol_id as usize)
@@ -1528,9 +1551,9 @@ impl MarketManager {
             crate::matching::types::OrderTimeInForce::Ioc
         };
 
-        self.handler.on_update_order(&order);
+        self.on_update_order(&order);
         self.match_market(symbol_id, &mut order);
-        self.handler.on_delete_order(&order);
+        self.on_delete_order(&order);
     }
 
     fn activate_stop_limit_order(&mut self, symbol_id: u32, id: OrderId) {
@@ -1555,7 +1578,7 @@ impl MarketManager {
         order.order_type = OrderType::Limit;
         order.stop_price = 0;
 
-        self.handler.on_update_order(&order);
+        self.on_update_order(&order);
         self.match_limit(symbol_id, &mut order);
 
         if order.leaves_quantity > 0 && !order.is_ioc() && !order.is_fok() {
@@ -1569,7 +1592,7 @@ impl MarketManager {
                 ob.add_order(&oc);
             }
         } else {
-            self.handler.on_delete_order(&order);
+            self.on_delete_order(&order);
         }
     }
 
@@ -1668,15 +1691,15 @@ impl MarketManager {
                 break;
             }
 
-            self.handler
-                .on_execute_order(&self.orders[&order_id].order, price, qty);
+            let order_for_callback = self.orders[&order_id].order;
+            self.on_execute_order(&order_for_callback, price, qty);
             if let Some(ob) = self
                 .order_books
                 .get_mut(symbol_id as usize)
                 .and_then(|o| o.as_mut())
             {
-                ob.update_last_price(&self.orders[&order_id].order, price);
-                ob.update_matching_price(&self.orders[&order_id].order, price);
+                ob.update_last_price(&order_for_callback, price);
+                ob.update_matching_price(&order_for_callback, price);
             }
 
             let hidden_before = self.orders[&order_id].order.hidden_quantity();
@@ -1703,7 +1726,7 @@ impl MarketManager {
                 {
                     ob.reduce_order(&order, qty, hidden_delta, visible_delta);
                 }
-                self.handler.on_delete_order(&order);
+                self.on_delete_order(&order);
             } else {
                 let order = self.orders[&order_id].order;
                 if let Some(ob) = self
@@ -1741,15 +1764,15 @@ impl MarketManager {
                 break;
             }
 
-            self.handler
-                .on_execute_order(&self.orders[&order_id].order, price, qty);
+            let order_for_callback = self.orders[&order_id].order;
+            self.on_execute_order(&order_for_callback, price, qty);
             if let Some(ob) = self
                 .order_books
                 .get_mut(symbol_id as usize)
                 .and_then(|o| o.as_mut())
             {
-                ob.update_last_price(&self.orders[&order_id].order, price);
-                ob.update_matching_price(&self.orders[&order_id].order, price);
+                ob.update_last_price(&order_for_callback, price);
+                ob.update_matching_price(&order_for_callback, price);
             }
 
             let hidden_before = self.orders[&order_id].order.hidden_quantity();
@@ -1776,7 +1799,7 @@ impl MarketManager {
                 {
                     ob.reduce_order(&order, qty, hidden_delta, visible_delta);
                 }
-                self.handler.on_delete_order(&order);
+                self.on_delete_order(&order);
             } else {
                 let order = self.orders[&order_id].order;
                 if let Some(ob) = self
@@ -1795,11 +1818,10 @@ impl MarketManager {
         &mut self,
         symbol_id: u32,
         limit_price: u64,
-        volume: u64,
         is_buy: bool,
-    ) -> Vec<(u64, u64)> {
-        let mut remaining = volume;
-        let mut fills = Vec::new();
+        incoming: &mut Order,
+    ) {
+        let mut remaining = incoming.leaves_quantity;
 
         while remaining > 0 {
             let level_info =
@@ -1834,15 +1856,15 @@ impl MarketManager {
                 break;
             }
 
-            self.handler
-                .on_execute_order(&self.orders[&order_id].order, price, qty);
+            let order_for_callback = self.orders[&order_id].order;
+            self.on_execute_order(&order_for_callback, price, qty);
             if let Some(ob) = self
                 .order_books
                 .get_mut(symbol_id as usize)
                 .and_then(|o| o.as_mut())
             {
-                ob.update_last_price(&self.orders[&order_id].order, price);
-                ob.update_matching_price(&self.orders[&order_id].order, price);
+                ob.update_last_price(&order_for_callback, price);
+                ob.update_matching_price(&order_for_callback, price);
             }
 
             let hidden_before = self.orders[&order_id].order.hidden_quantity();
@@ -1869,7 +1891,7 @@ impl MarketManager {
                 {
                     ob.reduce_order(&order, qty, hidden_delta, visible_delta);
                 }
-                self.handler.on_delete_order(&order);
+                self.on_delete_order(&order);
             } else {
                 let order = self.orders[&order_id].order;
                 if let Some(ob) = self
@@ -1881,11 +1903,19 @@ impl MarketManager {
                 }
             }
 
-            fills.push((price, qty));
+            self.on_execute_order(incoming, price, qty);
+            if let Some(ob) = self
+                .order_books
+                .get_mut(symbol_id as usize)
+                .and_then(|o| o.as_mut())
+            {
+                ob.update_last_price(incoming, price);
+                ob.update_matching_price(incoming, price);
+            }
+            incoming.executed_quantity += qty;
+            incoming.leaves_quantity -= qty;
             remaining -= qty;
         }
-
-        fills
     }
 
     fn recalculate_trailing_stop_price(&mut self, symbol_id: u32, level_type: LevelType) {
@@ -1918,18 +1948,19 @@ impl MarketManager {
         };
 
         for (order_id, new_price) in orders_to_update {
-            if let Some(slot) = self.orders.get_mut(&order_id) {
-                // Delete from old position
-                let old_order = slot.order;
-                if let Some(ob) = self
-                    .order_books
-                    .get_mut(symbol_id as usize)
-                    .and_then(|o| o.as_mut())
-                {
-                    ob.delete_trailing_stop_order(&old_order);
-                }
+            let Some(old_order) = self.orders.get(&order_id).map(|slot| slot.order) else {
+                continue;
+            };
 
-                // Update price
+            if let Some(ob) = self
+                .order_books
+                .get_mut(symbol_id as usize)
+                .and_then(|o| o.as_mut())
+            {
+                ob.delete_trailing_stop_order(&old_order);
+            }
+
+            let Some(order) = self.orders.get_mut(&order_id).map(|slot| {
                 match slot.order.order_type {
                     OrderType::TrailingStop => {
                         slot.order.stop_price = new_price;
@@ -1941,18 +1972,19 @@ impl MarketManager {
                     }
                     _ => {}
                 }
+                slot.order
+            }) else {
+                continue;
+            };
 
-                self.handler.on_update_order(&slot.order);
+            self.on_update_order(&order);
 
-                // Re-add at new position
-                let order = slot.order;
-                if let Some(ob) = self
-                    .order_books
-                    .get_mut(symbol_id as usize)
-                    .and_then(|o| o.as_mut())
-                {
-                    ob.add_trailing_stop_order(&order);
-                }
+            if let Some(ob) = self
+                .order_books
+                .get_mut(symbol_id as usize)
+                .and_then(|o| o.as_mut())
+            {
+                ob.add_trailing_stop_order(&order);
             }
         }
     }
